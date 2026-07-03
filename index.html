@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#101C2E">
+<title>SmartDocs Vault — خزنة المستندات</title>
+<!-- jsPDF: the ONLY external dependency (cached by the service worker for offline use) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
+<style>
+/* ---------- Design tokens ---------- */
+:root{
+  --ink:#101C2E;          /* deep navy */
+  --ink-2:#2E4257;        /* slate navy */
+  --paper:#F7F3EA;        /* cream */
+  --card:#FFFFFF;
+  --gold:#C9A24B;         /* warm gold accent */
+  --gold-deep:#A8842F;
+  --text:#1E2937;
+  --muted:#6B7686;
+  --danger:#B3402F;
+  --radius:14px;
+  --shadow:0 2px 10px rgba(16,28,46,.10);
+  --tap:56px;             /* large touch target */
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0}
+body{
+  background:var(--paper);
+  color:var(--text);
+  font-family:"Segoe UI","Noto Naskh Arabic","Noto Sans Arabic",Tahoma,Arial,sans-serif;
+  font-size:16px;
+  min-height:100vh;
+  padding-bottom:env(safe-area-inset-bottom);
+}
+[dir="ltr"] body{font-family:"Segoe UI",Roboto,Arial,sans-serif}
+
+/* ---------- Header ---------- */
+header{
+  position:sticky;top:0;z-index:20;
+  background:var(--ink);color:#F6EFDD;
+  padding:12px 16px calc(12px);
+  display:flex;align-items:center;gap:10px;
+  box-shadow:0 2px 8px rgba(0,0,0,.25);
+}
+header .logo{
+  width:38px;height:38px;flex:0 0 auto;border-radius:10px;
+  background:linear-gradient(150deg,var(--gold),var(--gold-deep));
+  display:grid;place-items:center;color:var(--ink);font-weight:800;font-size:20px;
+}
+header h1{font-size:18px;margin:0;flex:1;font-weight:700;letter-spacing:.3px;line-height:1.2}
+header h1 small{display:block;font-size:11px;font-weight:400;color:#C7B98F}
+.iconbtn{
+  min-width:44px;height:44px;border:none;border-radius:12px;
+  background:rgba(255,255,255,.10);color:#F6EFDD;font-size:15px;
+  display:grid;place-items:center;cursor:pointer;padding:0 10px;
+}
+.iconbtn:active{background:rgba(255,255,255,.22)}
+
+/* ---------- Layout ---------- */
+main{max-width:760px;margin:0 auto;padding:16px}
+.view{display:none}
+.view.active{display:block}
+
+/* ---------- Buttons ---------- */
+.btn{
+  display:flex;align-items:center;justify-content:center;gap:8px;
+  min-height:var(--tap);width:100%;
+  border:none;border-radius:var(--radius);
+  font-size:17px;font-weight:700;cursor:pointer;
+  padding:0 18px;font-family:inherit;
+}
+.btn:active{transform:scale(.985)}
+.btn-gold{background:var(--gold);color:var(--ink)}
+.btn-navy{background:var(--ink-2);color:#fff}
+.btn-ghost{background:transparent;color:var(--ink-2);border:2px solid var(--ink-2)}
+.btn-danger{background:transparent;color:var(--danger);border:2px solid var(--danger)}
+.btnrow{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:12px 0}
+.btnrow .full{grid-column:1/-1}
+
+/* ---------- Folder cards (signature: archive wallet with gold tab) ---------- */
+#folderList{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:14px;margin-top:14px}
+.folder-card{
+  position:relative;background:var(--card);border-radius:var(--radius);
+  box-shadow:var(--shadow);overflow:hidden;cursor:pointer;
+  border:1px solid rgba(16,28,46,.06);
+  display:flex;flex-direction:column;
+}
+.folder-card::before{ /* gold file tab */
+  content:"";position:absolute;top:0;inset-inline-start:14px;
+  width:56px;height:8px;border-radius:0 0 6px 6px;
+  background:var(--gold);
+}
+.folder-thumb{
+  height:110px;background:linear-gradient(160deg,#E9E2D2,#DDD3BC);
+  display:grid;place-items:center;color:var(--ink-2);font-size:34px;
+}
+.folder-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.folder-meta{padding:10px 12px 12px}
+.folder-meta .name{font-weight:700;font-size:15px;word-break:break-word}
+.folder-meta .count{font-size:12px;color:var(--muted);margin-top:2px}
+.folder-del{
+  position:absolute;top:6px;inset-inline-end:6px;
+  width:36px;height:36px;border:none;border-radius:10px;
+  background:rgba(16,28,46,.55);color:#fff;font-size:15px;cursor:pointer;
+}
+
+/* ---------- Image grid ---------- */
+#imageGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(105px,1fr));gap:10px;margin-top:14px}
+.img-cell{
+  position:relative;border-radius:12px;overflow:hidden;background:#E7E0D0;
+  aspect-ratio:3/4;box-shadow:var(--shadow);
+  touch-action:none; /* enables pointer-drag reorder */
+}
+.img-cell img{width:100%;height:100%;object-fit:cover;display:block;pointer-events:none}
+.img-cell .num{
+  position:absolute;bottom:6px;inset-inline-start:6px;
+  background:rgba(16,28,46,.75);color:var(--gold);
+  font-size:12px;font-weight:700;padding:2px 8px;border-radius:8px;
+}
+.img-cell .del{
+  position:absolute;top:5px;inset-inline-end:5px;
+  width:32px;height:32px;border:none;border-radius:9px;
+  background:rgba(179,64,47,.9);color:#fff;font-size:14px;cursor:pointer;
+}
+.img-cell.dragging{opacity:.35;outline:3px dashed var(--gold)}
+.drag-ghost{
+  position:fixed;z-index:60;width:96px;aspect-ratio:3/4;border-radius:12px;overflow:hidden;
+  box-shadow:0 10px 26px rgba(0,0,0,.35);pointer-events:none;transform:translate(-50%,-50%) rotate(3deg);
+}
+.drag-ghost img{width:100%;height:100%;object-fit:cover}
+.hint{font-size:12.5px;color:var(--muted);margin:8px 2px 0;text-align:center}
+
+/* ---------- Folder view header ---------- */
+.subhead{display:flex;align-items:center;gap:10px;margin-bottom:4px}
+.subhead h2{margin:0;font-size:19px;flex:1;word-break:break-word}
+.backbtn{
+  min-width:44px;height:44px;border:none;border-radius:12px;cursor:pointer;
+  background:var(--ink-2);color:#fff;font-size:18px;
+}
+
+/* ---------- Empty states ---------- */
+.empty{
+  text-align:center;color:var(--muted);padding:44px 16px;
+  border:2px dashed rgba(16,28,46,.18);border-radius:var(--radius);margin-top:16px;
+}
+.empty .big{font-size:42px;margin-bottom:8px}
+
+/* ---------- Modal ---------- */
+.overlay{
+  position:fixed;inset:0;background:rgba(16,28,46,.55);z-index:40;
+  display:none;align-items:flex-end;justify-content:center;
+}
+.overlay.open{display:flex}
+.sheet{
+  background:var(--paper);width:100%;max-width:520px;
+  border-radius:20px 20px 0 0;padding:20px 18px calc(20px + env(safe-area-inset-bottom));
+}
+.sheet h3{margin:0 0 12px;font-size:18px}
+.sheet input[type=text]{
+  width:100%;min-height:52px;font-size:17px;font-family:inherit;
+  border:2px solid var(--ink-2);border-radius:12px;padding:0 14px;background:#fff;color:var(--text);
+}
+.sheet input[type=text]:focus{outline:none;border-color:var(--gold)}
+.sheet .btnrow{margin-top:14px}
+
+/* ---------- Toast & progress ---------- */
+#toast{
+  position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
+  background:var(--ink);color:#F6EFDD;padding:12px 20px;border-radius:12px;
+  font-size:14.5px;z-index:70;display:none;max-width:88vw;text-align:center;
+  box-shadow:0 6px 18px rgba(0,0,0,.3);
+}
+#busy{
+  position:fixed;inset:0;background:rgba(247,243,234,.85);z-index:65;
+  display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;
+}
+#busy.open{display:flex}
+.spinner{
+  width:46px;height:46px;border-radius:50%;
+  border:5px solid rgba(16,28,46,.15);border-top-color:var(--gold);
+  animation:spin .8s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+#busyText{font-weight:700;color:var(--ink)}
+@media (prefers-reduced-motion:reduce){
+  .spinner{animation-duration:1.6s}
+  .btn:active{transform:none}
+}
+button:focus-visible,.folder-card:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">🗂</div>
+  <h1 id="appTitle">خزنة المستندات<small>SmartDocs Vault</small></h1>
+  <button class="iconbtn" id="langBtn" aria-label="Language">EN</button>
+  <button class="iconbtn" id="installBtn" hidden>⬇ <span data-i18n="install">تثبيت</span></button>
+</header>
+
+<main>
+  <!-- ============ Folders view ============ -->
+  <section id="foldersView" class="view active">
+    <button class="btn btn-gold" id="newFolderBtn">＋ <span data-i18n="newFolder">مجلد جديد</span></button>
+    <div id="folderList"></div>
+    <div id="foldersEmpty" class="empty" hidden>
+      <div class="big">📁</div>
+      <div data-i18n="noFolders">لا توجد مجلدات بعد — أنشئ مجلدك الأول</div>
+    </div>
+  </section>
+
+  <!-- ============ Single folder view ============ -->
+  <section id="folderView" class="view">
+    <div class="subhead">
+      <button class="backbtn" id="backBtn" aria-label="Back">↩</button>
+      <h2 id="folderTitle"></h2>
+    </div>
+    <div class="btnrow">
+      <button class="btn btn-navy" id="cameraBtn">📷 <span data-i18n="camera">كاميرا</span></button>
+      <button class="btn btn-navy" id="galleryBtn">🖼 <span data-i18n="gallery">المعرض</span></button>
+      <button class="btn btn-gold full" id="pdfBtn">📄 <span data-i18n="exportPdf">تصدير PDF</span></button>
+      <button class="btn btn-ghost full" id="shareBtn">📤 <span data-i18n="sharePdf">مشاركة PDF</span></button>
+      <button class="btn btn-danger full" id="delFolderBtn">🗑 <span data-i18n="deleteFolder">حذف المجلد</span></button>
+    </div>
+    <p class="hint" data-i18n="dragHint">اضغط مطوّلًا على صورة ثم اسحبها لإعادة الترتيب</p>
+    <div id="imageGrid"></div>
+    <div id="imagesEmpty" class="empty" hidden>
+      <div class="big">🖼</div>
+      <div data-i18n="noImages">لا توجد صور — أضف من الكاميرا أو المعرض</div>
+    </div>
+  </section>
+</main>
+
+<!-- hidden pickers -->
+<input type="file" id="cameraInput" accept="image/*" capture="environment" hidden>
+<input type="file" id="galleryInput" accept="image/*" multiple hidden>
+
+<!-- New folder sheet -->
+<div class="overlay" id="folderSheet">
+  <div class="sheet">
+    <h3 data-i18n="folderName">اسم المجلد</h3>
+    <input type="text" id="folderNameInput" maxlength="60" autocomplete="off">
+    <div class="btnrow">
+      <button class="btn btn-ghost" id="cancelFolderBtn" data-i18n="cancel">إلغاء</button>
+      <button class="btn btn-gold" id="saveFolderBtn" data-i18n="create">إنشاء</button>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm sheet -->
+<div class="overlay" id="confirmSheet">
+  <div class="sheet">
+    <h3 id="confirmText"></h3>
+    <div class="btnrow">
+      <button class="btn btn-ghost" id="confirmNo" data-i18n="cancel">إلغاء</button>
+      <button class="btn btn-gold" id="confirmYes" data-i18n="confirm">تأكيد</button>
+    </div>
+  </div>
+</div>
+
+<div id="busy"><div class="spinner"></div><div id="busyText"></div></div>
+<div id="toast" role="status"></div>
+
+<script>
+"use strict";
+/* =====================================================================
+   SmartDocs Vault — offline-first document folders with PDF export
+   IndexedDB storage · image compression · lazy loading · drag reorder
+   ===================================================================== */
+
+/* ---------------- i18n ---------------- */
+const I18N = {
+  ar:{install:"تثبيت",newFolder:"مجلد جديد",noFolders:"لا توجد مجلدات بعد — أنشئ مجلدك الأول",
+      camera:"كاميرا",gallery:"المعرض",exportPdf:"تصدير PDF",sharePdf:"مشاركة PDF",
+      deleteFolder:"حذف المجلد",dragHint:"اضغط مطوّلًا على صورة ثم اسحبها لإعادة الترتيب",
+      noImages:"لا توجد صور — أضف من الكاميرا أو المعرض",folderName:"اسم المجلد",
+      cancel:"إلغاء",create:"إنشاء",confirm:"تأكيد",
+      imgWord:"صورة",imgsWord:"صور",
+      confirmDelImg:"حذف هذه الصورة؟",confirmDelFolder:"حذف المجلد وكل صوره؟",
+      savedN:n=>`تمت إضافة ${n} ${n===1?"صورة":"صور"}`,
+      compressing:"جارٍ ضغط الصور…",building:"جارٍ إنشاء ملف PDF…",
+      pdfDone:"تم تنزيل ملف PDF",shared:"تمت المشاركة",shareNA:"المشاركة غير مدعومة على هذا الجهاز — تم التنزيل بدلًا منها",
+      emptyPdf:"المجلد فارغ — أضف صورًا أولًا",nameNeeded:"أدخل اسمًا للمجلد",
+      offlineReady:"التطبيق جاهز للعمل دون اتصال",installed:"تم تثبيت التطبيق",
+      pdfLibMissing:"مكتبة PDF لم تُحمَّل بعد — افتح التطبيق مرة واحدة مع اتصال بالإنترنت"},
+  en:{install:"Install",newFolder:"New folder",noFolders:"No folders yet — create your first one",
+      camera:"Camera",gallery:"Gallery",exportPdf:"Export as PDF",sharePdf:"Share PDF",
+      deleteFolder:"Delete folder",dragHint:"Long-press an image, then drag to reorder",
+      noImages:"No images — add from camera or gallery",folderName:"Folder name",
+      cancel:"Cancel",create:"Create",confirm:"Confirm",
+      imgWord:"image",imgsWord:"images",
+      confirmDelImg:"Delete this image?",confirmDelFolder:"Delete this folder and all its images?",
+      savedN:n=>`${n} ${n===1?"image":"images"} added`,
+      compressing:"Compressing images…",building:"Building PDF…",
+      pdfDone:"PDF downloaded",shared:"Shared",shareNA:"Sharing not supported on this device — downloaded instead",
+      emptyPdf:"Folder is empty — add images first",nameNeeded:"Enter a folder name",
+      offlineReady:"App is ready to work offline",installed:"App installed",
+      pdfLibMissing:"PDF library not loaded yet — open the app once while online"}
+};
+let lang = localStorage.getItem("sdv-lang") || "ar";
+const t = k => I18N[lang][k];
+
+function applyLang(){
+  document.documentElement.lang = lang;
+  document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
+  document.getElementById("langBtn").textContent = lang === "ar" ? "EN" : "ع";
+  document.querySelectorAll("[data-i18n]").forEach(el=>{
+    el.textContent = t(el.dataset.i18n);
+  });
+  localStorage.setItem("sdv-lang", lang);
+}
+document.getElementById("langBtn").onclick = () => {
+  lang = lang === "ar" ? "en" : "ar";
+  applyLang();
+  renderFolders(); if (currentFolder) renderImages();
+};
+
+/* ---------------- IndexedDB ---------------- */
+const DB_NAME = "smartdocs-vault", DB_VER = 1;
+let db;
+function openDB(){
+  return new Promise((res, rej) => {
+    const req = indexedDB.open(DB_NAME, DB_VER);
+    req.onupgradeneeded = e => {
+      const d = e.target.result;
+      const f = d.createObjectStore("folders", { keyPath:"id", autoIncrement:true });
+      f.createIndex("byName","name",{unique:false});
+      const im = d.createObjectStore("images", { keyPath:"id", autoIncrement:true });
+      im.createIndex("byFolder","folderId",{unique:false});
+    };
+    req.onsuccess = () => { db = req.result; res(db); };
+    req.onerror   = () => rej(req.error);
+  });
+}
+function tx(store, mode, fn){
+  return new Promise((res, rej) => {
+    const trx = db.transaction(store, mode);
+    const s = trx.objectStore(store);
+    const out = fn(s);
+    trx.oncomplete = () => res(out && out.result !== undefined ? out.result : undefined);
+    trx.onerror = () => rej(trx.error);
+  });
+}
+const getAll = (store, index, key) => new Promise((res, rej) => {
+  const s = db.transaction(store).objectStore(store);
+  const src = index ? s.index(index) : s;
+  const req = key !== undefined ? src.getAll(key) : src.getAll();
+  req.onsuccess = () => res(req.result);
+  req.onerror = () => rej(req.error);
+});
+
+/* ---------------- Image compression ----------------
+   Downscale to MAX_DIM and re-encode as JPEG before storing:
+   keeps IndexedDB small and rendering fast on low-end devices. */
+const MAX_DIM = 1600, JPEG_Q = 0.8;
+async function compressImage(file){
+  const bmp = await createImageBitmap(file).catch(()=>null);
+  let w, h, src;
+  if (bmp){ w = bmp.width; h = bmp.height; src = bmp; }
+  else { // fallback for browsers without createImageBitmap(File)
+    src = await new Promise((res, rej) => {
+      const img = new Image();
+      img.onload = () => res(img); img.onerror = rej;
+      img.src = URL.createObjectURL(file);
+    });
+    w = src.naturalWidth; h = src.naturalHeight;
+  }
+  const scale = Math.min(1, MAX_DIM / Math.max(w, h));
+  const cw = Math.max(1, Math.round(w*scale)), ch = Math.max(1, Math.round(h*scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = cw; canvas.height = ch;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#fff"; ctx.fillRect(0,0,cw,ch); // flatten PNG transparency
+  ctx.drawImage(src, 0, 0, cw, ch);
+  if (bmp) bmp.close?.();
+  if (src instanceof HTMLImageElement) URL.revokeObjectURL(src.src);
+  const blob = await new Promise(res => canvas.toBlob(res, "image/jpeg", JPEG_Q));
+  return { blob, width: cw, height: ch };
+}
+
+/* ---------------- State & elements ---------------- */
+let currentFolder = null;          // {id, name}
+let objectURLs = [];               // revoked on view change
+const $ = id => document.getElementById(id);
+const foldersView = $("foldersView"), folderView = $("folderView");
+
+function show(view){
+  foldersView.classList.toggle("active", view === "folders");
+  folderView.classList.toggle("active", view === "folder");
+  objectURLs.forEach(URL.revokeObjectURL); objectURLs = [];
+  window.scrollTo(0,0);
+}
+function toast(msg, ms=2600){
+  const el = $("toast"); el.textContent = msg; el.style.display = "block";
+  clearTimeout(el._t); el._t = setTimeout(()=> el.style.display="none", ms);
+}
+function busy(msg){ $("busyText").textContent = msg || ""; $("busy").classList.toggle("open", !!msg); }
+function confirmSheet(text){
+  return new Promise(res => {
+    $("confirmText").textContent = text;
+    const ov = $("confirmSheet"); ov.classList.add("open");
+    const done = v => { ov.classList.remove("open"); $("confirmYes").onclick = $("confirmNo").onclick = null; res(v); };
+    $("confirmYes").onclick = () => done(true);
+    $("confirmNo").onclick  = () => done(false);
+  });
+}
+
+/* ---------------- Folders ---------------- */
+async function renderFolders(){
+  const folders = (await getAll("folders")).sort((a,b)=>a.createdAt-b.createdAt);
+  const list = $("folderList"); list.innerHTML = "";
+  $("foldersEmpty").hidden = folders.length > 0;
+  for (const f of folders){
+    const imgs = await getAll("images","byFolder",f.id);
+    const card = document.createElement("div");
+    card.className = "folder-card"; card.tabIndex = 0;
+    const n = imgs.length;
+    card.innerHTML = `
+      <div class="folder-thumb">📂</div>
+      <div class="folder-meta">
+        <div class="name"></div>
+        <div class="count">${n} ${n===1?t("imgWord"):t("imgsWord")}</div>
+      </div>
+      <button class="folder-del" aria-label="delete">🗑</button>`;
+    card.querySelector(".name").textContent = f.name;
+    if (n){
+      const first = imgs.sort((a,b)=>a.order-b.order)[0];
+      const url = URL.createObjectURL(first.blob); objectURLs.push(url);
+      card.querySelector(".folder-thumb").innerHTML = `<img src="${url}" alt="" loading="lazy">`;
+    }
+    card.onclick = e => { if (e.target.closest(".folder-del")) return; openFolder(f); };
+    card.onkeydown = e => { if (e.key==="Enter") openFolder(f); };
+    card.querySelector(".folder-del").onclick = async () => {
+      if (!(await confirmSheet(t("confirmDelFolder")))) return;
+      await deleteFolder(f.id); renderFolders();
+    };
+    list.appendChild(card);
+  }
+}
+async function deleteFolder(id){
+  const imgs = await getAll("images","byFolder",id);
+  await tx("images","readwrite", s => { imgs.forEach(i => s.delete(i.id)); });
+  await tx("folders","readwrite", s => s.delete(id));
+}
+
+$("newFolderBtn").onclick = () => {
+  $("folderNameInput").value = "";
+  $("folderSheet").classList.add("open");
+  setTimeout(()=> $("folderNameInput").focus(), 60);
+};
+$("cancelFolderBtn").onclick = () => $("folderSheet").classList.remove("open");
+$("saveFolderBtn").onclick = async () => {
+  const name = $("folderNameInput").value.trim();
+  if (!name){ toast(t("nameNeeded")); return; }
+  await tx("folders","readwrite", s => s.add({ name, createdAt: Date.now() }));
+  $("folderSheet").classList.remove("open");
+  renderFolders();
+};
+$("folderNameInput").addEventListener("keydown", e => { if (e.key==="Enter") $("saveFolderBtn").click(); });
+
+/* ---------------- Folder (images) view ---------------- */
+function openFolder(f){
+  currentFolder = f;
+  $("folderTitle").textContent = f.name;
+  show("folder");
+  renderImages();
+}
+$("backBtn").onclick = () => { currentFolder = null; show("folders"); renderFolders(); };
+
+/* Lazy loading via IntersectionObserver */
+const lazyObs = new IntersectionObserver(entries => {
+  for (const en of entries){
+    if (!en.isIntersecting) continue;
+    const img = en.target;
+    if (img.dataset.src){ img.src = img.dataset.src; delete img.dataset.src; }
+    lazyObs.unobserve(img);
+  }
+}, { rootMargin:"300px" });
+
+async function renderImages(){
+  const grid = $("imageGrid"); grid.innerHTML = "";
+  objectURLs.forEach(URL.revokeObjectURL); objectURLs = [];
+  const imgs = (await getAll("images","byFolder",currentFolder.id)).sort((a,b)=>a.order-b.order);
+  $("imagesEmpty").hidden = imgs.length > 0;
+  imgs.forEach((rec, i) => {
+    const cell = document.createElement("div");
+    cell.className = "img-cell"; cell.dataset.id = rec.id;
+    const url = URL.createObjectURL(rec.blob); objectURLs.push(url);
+    const img = document.createElement("img");
+    img.alt = ""; img.decoding = "async";
+    if (i < 8) img.src = url; else { img.dataset.src = url; lazyObs.observe(img); }
+    const del = document.createElement("button");
+    del.className = "del"; del.textContent = "✕"; del.setAttribute("aria-label","delete image");
+    del.onclick = async e => {
+      e.stopPropagation();
+      if (!(await confirmSheet(t("confirmDelImg")))) return;
+      await tx("images","readwrite", s => s.delete(rec.id));
+      renderImages();
+    };
+    const num = document.createElement("span");
+    num.className = "num"; num.textContent = i + 1;
+    cell.append(img, del, num);
+    attachDrag(cell);
+    grid.appendChild(cell);
+  });
+}
+
+/* ---------------- Add images ---------------- */
+$("cameraBtn").onclick  = () => $("cameraInput").click();
+$("galleryBtn").onclick = () => $("galleryInput").click();
+$("cameraInput").onchange  = e => addFiles(e.target.files).then(()=> e.target.value = "");
+$("galleryInput").onchange = e => addFiles(e.target.files).then(()=> e.target.value = "");
+
+async function addFiles(fileList){
+  const files = [...fileList].filter(f => f.type.startsWith("image/"));
+  if (!files.length) return;
+  busy(t("compressing"));
+  try{
+    const existing = await getAll("images","byFolder",currentFolder.id);
+    let order = existing.reduce((m,i)=>Math.max(m,i.order), 0);
+    for (const f of files){
+      const { blob, width, height } = await compressImage(f);
+      order += 1;
+      const rec = { folderId: currentFolder.id, blob, width, height, order, createdAt: Date.now() };
+      await tx("images","readwrite", s => s.add(rec));
+    }
+    toast(t("savedN")(files.length));
+    renderImages();
+  } finally { busy(null); }
+}
+
+/* ---------------- Drag & drop reorder (pointer-based, mobile friendly) ---------------- */
+let drag = null;
+function attachDrag(cell){
+  cell.addEventListener("pointerdown", e => {
+    if (e.target.closest(".del")) return;
+    const startX = e.clientX, startY = e.clientY;
+    const timer = setTimeout(()=> startDrag(cell, startX, startY), 260); // long-press
+    const cancel = () => { clearTimeout(timer); cell.removeEventListener("pointerup",cancel); cell.removeEventListener("pointermove",move); };
+    const move = ev => { if (Math.hypot(ev.clientX-startX, ev.clientY-startY) > 12 && !drag) cancel(); };
+    cell.addEventListener("pointerup", cancel, { once:true });
+    cell.addEventListener("pointermove", move);
+  });
+}
+function startDrag(cell, x, y){
+  if (navigator.vibrate) navigator.vibrate(25);
+  drag = { cell };
+  cell.classList.add("dragging");
+  const ghost = document.createElement("div");
+  ghost.className = "drag-ghost";
+  ghost.innerHTML = `<img src="${cell.querySelector("img").src || cell.querySelector("img").dataset.src}">`;
+  document.body.appendChild(ghost);
+  drag.ghost = ghost;
+  moveGhost(x, y);
+  window.addEventListener("pointermove", onDragMove, { passive:false });
+  window.addEventListener("pointerup", endDrag, { once:true });
+  window.addEventListener("pointercancel", endDrag, { once:true });
+}
+function moveGhost(x, y){ drag.ghost.style.left = x+"px"; drag.ghost.style.top = y+"px"; }
+function onDragMove(e){
+  e.preventDefault();
+  moveGhost(e.clientX, e.clientY);
+  const el = document.elementFromPoint(e.clientX, e.clientY);
+  const over = el && el.closest(".img-cell");
+  if (!over || over === drag.cell) return;
+  const grid = $("imageGrid");
+  const cells = [...grid.children];
+  const from = cells.indexOf(drag.cell), to = cells.indexOf(over);
+  if (from < to) grid.insertBefore(drag.cell, over.nextSibling);
+  else grid.insertBefore(drag.cell, over);
+  // auto-scroll near screen edges
+  if (e.clientY < 90) window.scrollBy(0,-12);
+  else if (e.clientY > innerHeight - 90) window.scrollBy(0,12);
+}
+async function endDrag(){
+  window.removeEventListener("pointermove", onDragMove);
+  drag.ghost.remove();
+  drag.cell.classList.remove("dragging");
+  // persist new order
+  const cells = [...$("imageGrid").children];
+  await tx("images","readwrite", s => {
+    cells.forEach((c, i) => {
+      const req = s.get(Number(c.dataset.id));
+      req.onsuccess = () => { const rec = req.result; if (rec){ rec.order = i+1; s.put(rec); } };
+    });
+  });
+  cells.forEach((c,i)=> c.querySelector(".num").textContent = i+1);
+  drag = null;
+}
+
+/* ---------------- Delete folder (from inside) ---------------- */
+$("delFolderBtn").onclick = async () => {
+  if (!(await confirmSheet(t("confirmDelFolder")))) return;
+  await deleteFolder(currentFolder.id);
+  currentFolder = null;
+  show("folders"); renderFolders();
+};
+
+/* ---------------- PDF export ----------------
+   All images of the folder → ONE PDF, in saved order.
+   Filename is EXACTLY the folder name + ".pdf".            */
+const PDF_MAX_DIM = 1400, PDF_JPEG_Q = 0.72; // extra compression inside the PDF
+async function blobToPdfJpeg(blob){
+  const bmp = await createImageBitmap(blob);
+  const scale = Math.min(1, PDF_MAX_DIM / Math.max(bmp.width, bmp.height));
+  const w = Math.round(bmp.width*scale), h = Math.round(bmp.height*scale);
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  const ctx = c.getContext("2d");
+  ctx.fillStyle="#fff"; ctx.fillRect(0,0,w,h);
+  ctx.drawImage(bmp,0,0,w,h); bmp.close?.();
+  return { dataUrl: c.toDataURL("image/jpeg", PDF_JPEG_Q), w, h };
+}
+async function buildPdf(){
+  if (!window.jspdf){ toast(t("pdfLibMissing"), 4000); return null; }
+  const imgs = (await getAll("images","byFolder",currentFolder.id)).sort((a,b)=>a.order-b.order);
+  if (!imgs.length){ toast(t("emptyPdf")); return null; }
+  busy(t("building"));
+  try{
+    const { jsPDF } = window.jspdf;
+    const A4 = { w:210, h:297 }, margin = 8;
+    const doc = new jsPDF({ unit:"mm", format:"a4", compress:true });
+    for (let i = 0; i < imgs.length; i++){
+      const { dataUrl, w, h } = await blobToPdfJpeg(imgs[i].blob);
+      if (i > 0) doc.addPage();
+      const maxW = A4.w - margin*2, maxH = A4.h - margin*2;
+      const s = Math.min(maxW / w, maxH / h);
+      const dw = w*s, dh = h*s;
+      doc.addImage(dataUrl, "JPEG", (A4.w-dw)/2, (A4.h-dh)/2, dw, dh, undefined, "FAST");
+      // yield to UI thread between pages (low-end device friendliness)
+      await new Promise(r => setTimeout(r, 0));
+    }
+    return doc;
+  } finally { busy(null); }
+}
+function pdfFilename(){ return currentFolder.name + ".pdf"; }
+
+$("pdfBtn").onclick = async () => {
+  const doc = await buildPdf();
+  if (!doc) return;
+  doc.save(pdfFilename());
+  toast(t("pdfDone"));
+};
+$("shareBtn").onclick = async () => {
+  const doc = await buildPdf();
+  if (!doc) return;
+  const blob = doc.output("blob");
+  const file = new File([blob], pdfFilename(), { type:"application/pdf" });
+  if (navigator.canShare && navigator.canShare({ files:[file] })){
+    try{
+      await navigator.share({ files:[file], title: currentFolder.name });
+      toast(t("shared"));
+      return;
+    }catch(err){ if (err.name === "AbortError") return; }
+  }
+  // fallback: download
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = pdfFilename(); a.click();
+  setTimeout(()=> URL.revokeObjectURL(url), 4000);
+  toast(t("shareNA"), 3500);
+};
+
+/* ---------------- PWA: manifest + install + service worker ---------------- */
+function makeIcon(size){
+  const c = document.createElement("canvas"); c.width = c.height = size;
+  const x = c.getContext("2d");
+  x.fillStyle = "#101C2E"; x.fillRect(0,0,size,size);
+  x.fillStyle = "#C9A24B";
+  const p = size*0.18;
+  x.beginPath(); // folder shape
+  x.moveTo(p, size*0.34);
+  x.lineTo(size*0.42, size*0.34); x.lineTo(size*0.48, size*0.42);
+  x.lineTo(size-p, size*0.42); x.lineTo(size-p, size-p);
+  x.lineTo(p, size-p); x.closePath(); x.fill();
+  x.fillStyle = "#F7F3EA";
+  x.fillRect(size*0.30, size*0.52, size*0.40, size*0.045);
+  x.fillRect(size*0.30, size*0.62, size*0.40, size*0.045);
+  x.fillRect(size*0.30, size*0.72, size*0.28, size*0.045);
+  return c.toDataURL("image/png");
+}
+(function injectManifest(){
+  const manifest = {
+    name: "SmartDocs Vault", short_name: "SmartDocs",
+    start_url: ".", scope: ".", display: "standalone",
+    background_color: "#F7F3EA", theme_color: "#101C2E", dir: "rtl", lang: "ar",
+    icons: [
+      { src: makeIcon(192), sizes:"192x192", type:"image/png", purpose:"any maskable" },
+      { src: makeIcon(512), sizes:"512x512", type:"image/png", purpose:"any maskable" }
+    ]
+  };
+  const url = URL.createObjectURL(new Blob([JSON.stringify(manifest)], { type:"application/manifest+json" }));
+  const link = document.createElement("link");
+  link.rel = "manifest"; link.href = url;
+  document.head.appendChild(link);
+})();
+
+let deferredInstall = null;
+window.addEventListener("beforeinstallprompt", e => {
+  e.preventDefault();
+  deferredInstall = e;
+  $("installBtn").hidden = false;
+});
+$("installBtn").onclick = async () => {
+  if (!deferredInstall) return;
+  deferredInstall.prompt();
+  const { outcome } = await deferredInstall.userChoice;
+  if (outcome === "accepted"){ toast(t("installed")); $("installBtn").hidden = true; }
+  deferredInstall = null;
+};
+window.addEventListener("appinstalled", () => { $("installBtn").hidden = true; });
+
+/* Service worker: registered from the companion sw.js file.
+   (Browsers require the SW to be a real same-origin JS file —
+   blob:/data: URLs are rejected — so it cannot live inside this HTML.) */
+if ("serviceWorker" in navigator){
+  navigator.serviceWorker.register("./sw.js").then(reg => {
+    reg.addEventListener("updatefound", () => {
+      const nw = reg.installing;
+      nw?.addEventListener("statechange", () => {
+        if (nw.state === "activated" && !navigator.serviceWorker.controller) toast(t("offlineReady"));
+      });
+    });
+  }).catch(()=>{ /* app still works fully online without SW */ });
+}
+
+/* ---------------- Boot ---------------- */
+openDB().then(() => { applyLang(); renderFolders(); });
+</script>
+</body>
+</html>
